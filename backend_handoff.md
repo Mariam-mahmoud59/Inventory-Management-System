@@ -21,14 +21,14 @@ Add the following environment variables to your `.env` file. Retrieve the actual
 
 ```env
 # Supabase Project
-SUPABASE_URL=https://momvhjbermzewknbjktt.supabase.co
+SUPABASE_URL=
 
-SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vbXZoamJlcm16ZXdrbmJqa3R0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MzYwNDEsImV4cCI6MjA4ODExMjA0MX0.cQ37zT_LkjkRu5lwbrVWTad_mvSWQQ4CSW_jCeScQWM
+SUPABASE_ANON_KEY= 
 
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vbXZoamJlcm16ZXdrbmJqa3R0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjUzNjA0MSwiZXhwIjoyMDg4MTEyMDQxfQ.Cwf4nN9JDrKU5qEK2EecbccHSH1mhSSXx1am0aTzLLc
+SUPABASE_SERVICE_ROLE_KEY= 
 
 # Direct database connection (use connection pooler for production)
-DATABASE_URL="postgresql://postgres:-zP+72EtvuQF@bA@db.momvhjbermzewknbjktt.supabase.co:5432/postgres"
+DATABASE_URL=
 ```
 
 > **⚠️ Security:** Never commit the Service Role Key to version control. The `.env.example` file in the repository should contain only placeholder values.

@@ -9,42 +9,14 @@ import type { ColumnDef } from '@tanstack/react-table';
 import type { Branch } from '@/types/schema';
 import { toast } from 'sonner';
 
-// --- MOCK API ---
-const mockBranches: Branch[] = [
-    {
-        id: 'branch-1',
-        name: 'Main Warehouse',
-        address: '123 Logistics Way, Port City, CA 90210',
-        phone: '+1 (555) 019-8234',
-        is_active: true,
-        created_at: new Date(Date.now() - 30000000000).toISOString(),
-    },
-    {
-        id: 'branch-2',
-        name: 'Downtown Retail Store',
-        address: '456 Commerce Blvd, Metro Center, NY 10001',
-        phone: '+1 (555) 012-4455',
-        is_active: true,
-        created_at: new Date(Date.now() - 15000000000).toISOString(),
-    },
-    {
-        id: 'branch-3',
-        name: 'Westside Outlet',
-        address: '789 Sunset Strip, Westside, CA 90046',
-        phone: '+1 (555) 018-9999',
-        is_active: false,
-        created_at: new Date(Date.now() - 5000000000).toISOString(),
-    },
-];
-
-const fetchBranches = async (): Promise<Branch[]> => {
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    return mockBranches;
-};
-// ----------------
+import { fetchBranches, createBranch, updateBranch } from '@/api/branches';
+import { useProfile } from '@/hooks/useProfile';
 
 export function BranchesPage() {
     const queryClient = useQueryClient();
+    const { data: profile, isLoading: isProfileLoading } = useProfile();
+    // Default to admin-view while loading to prevent flicker for owners
+    const isAdmin = isProfileLoading || profile?.role === 'admin';
     const [isAddModalOpen, setIsAddModalOpen] = React.useState(false);
 
     const { data: branches, isLoading } = useQuery({
@@ -53,47 +25,29 @@ export function BranchesPage() {
     });
 
     const addMutation = useMutation({
-        mutationFn: async (data: Partial<Branch>) => {
-            await new Promise((resolve) => setTimeout(resolve, 800));
-            const newBranch: Branch = {
-                id: `branch-new-${Date.now()}`,
-                name: data.name!,
-                address: data.address || null,
-                phone: data.phone || null,
-                is_active: true,
-                created_at: new Date().toISOString(),
-            };
-            mockBranches.push(newBranch);
-            return newBranch;
-        },
+        mutationFn: (data: Partial<Branch>) => createBranch(data),
         onSuccess: () => {
             toast.success('Branch location added successfully');
             queryClient.invalidateQueries({ queryKey: ['branches'] });
             setIsAddModalOpen(false);
         },
-        onError: () => toast.error('Failed to add branch')
+        onError: (err: any) => toast.error(`Failed to add branch: ${err.response?.data?.detail || err.message}`)
     });
 
     const toggleStatusMutation = useMutation({
-        mutationFn: async (branch: Branch) => {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-            // Mutate mock data so it persists in the session
-            const target = mockBranches.find(b => b.id === branch.id);
-            if (target) target.is_active = !target.is_active;
-            return { ...branch, is_active: !branch.is_active };
-        },
+        mutationFn: (branch: Branch) => updateBranch(branch.id, { is_active: !branch.is_active }),
         onSuccess: (updatedBranch) => {
             toast.success(`${updatedBranch.name} is now ${updatedBranch.is_active ? 'Active' : 'Inactive'}`);
             queryClient.invalidateQueries({ queryKey: ['branches'] });
         },
-        // Optimistic UI could be added here, but leaving simple for brevity
+        onError: (err: any) => toast.error(`Failed to update status: ${err.response?.data?.detail || err.message}`)
     });
 
     const columns: ColumnDef<Branch>[] = [
         {
             accessorKey: 'name',
             header: 'Branch Name',
-            cell: ({ row }) => (
+            cell: ({ row }: { row: any }) => (
                 <div className="flex items-center font-medium">
                     <Store className="mr-2 h-4 w-4 text-muted-foreground" />
                     {row.original.name}
@@ -105,19 +59,20 @@ export function BranchesPage() {
         {
             accessorKey: 'is_active',
             header: 'Status',
-            cell: ({ row }) => {
+            cell: ({ row }: { row: any }) => {
                 const isActive = row.original.is_active;
                 return (
                     <button
-                        onClick={() => toggleStatusMutation.mutate(row.original)}
-                        disabled={toggleStatusMutation.isPending}
+                        onClick={() => isAdmin && toggleStatusMutation.mutate(row.original)}
+                        disabled={!isAdmin || toggleStatusMutation.isPending}
                         className={cn(
                             "flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors w-max",
                             isActive
                                 ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
-                                : "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                                : "bg-destructive/10 text-destructive hover:bg-destructive/20",
+                            !isAdmin && "cursor-default hover:bg-emerald-500/10"
                         )}
-                        title="Click to toggle status"
+                        title={isAdmin ? "Click to toggle status" : "Inquiry only"}
                     >
                         {isActive ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
                         <span>{isActive ? 'Active' : 'Inactive'}</span>
@@ -125,12 +80,12 @@ export function BranchesPage() {
                 );
             },
         },
-        {
+        isAdmin ? {
             id: 'actions',
             header: '',
             cell: () => <Button variant="ghost" size="sm">Edit Details</Button>
-        }
-    ];
+        } : null
+    ].filter(Boolean) as ColumnDef<Branch>[];
 
     const handleAddSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -151,12 +106,14 @@ export function BranchesPage() {
                         Manage physical store locations, warehouses, and fulfillment centers.
                     </p>
                 </div>
-                <Button
-                    className="shadow-[0_0_15px_rgba(0,184,217,0.3)] hover:shadow-[0_0_25px_rgba(0,184,217,0.5)] transition-shadow"
-                    onClick={() => setIsAddModalOpen(true)}
-                >
-                    <Building2 className="mr-2 h-4 w-4" /> Add Branch
-                </Button>
+                {isAdmin && (
+                    <Button
+                        className="shadow-[0_0_15px_rgba(0,184,217,0.3)] hover:shadow-[0_0_25px_rgba(0,184,217,0.5)] transition-shadow"
+                        onClick={() => setIsAddModalOpen(true)}
+                    >
+                        <Building2 className="mr-2 h-4 w-4" /> Add Branch
+                    </Button>
+                )}
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col bg-muted/20 backdrop-blur-md border border-white/5 rounded-xl text-card-foreground shadow-lg p-6 relative group">

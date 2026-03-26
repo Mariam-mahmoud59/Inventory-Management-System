@@ -9,40 +9,17 @@ import { Box } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TransferStockModal } from '@/components/TransferStockModal';
 
-// Mock Fetcher for demonstration
-const fetchStockLevels = async (): Promise<StockLevel[]> => {
-    await new Promise((res) => setTimeout(res, 500));
-    return [
-        {
-            id: 'uuid-1',
-            product_id: 'prod-1',
-            branch_id: 'branch-1',
-            quantity: 120,
-            updated_at: new Date().toISOString(),
-            product: {
-                id: 'prod-1',
-                sku: 'SKU-1001',
-                name: 'Ergonomic Office Chair',
-                unit_price: 199.99,
-                cost_price: 100,
-                min_stock_level: 50,
-                is_active: true,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                barcode: null,
-                description: null,
-                category_id: null,
-                supplier_id: null,
-                image_url: null,
-            },
-        }
-    ];
-};
+import { fetchStockLevels } from '@/api/stock';
+import { useProfile } from '@/hooks/useProfile';
 
 export function StockPage() {
+    const { data: profile, isLoading: isProfileLoading } = useProfile();
+    // Default to manager/admin view while loading to prevent flicker
+    const isManager = isProfileLoading || profile?.role === 'admin' || profile?.role === 'manager';
+
     const { data, isLoading } = useQuery({
         queryKey: ['stock'],
-        queryFn: fetchStockLevels,
+        queryFn: () => fetchStockLevels(),
     });
 
     const [isTransferModalOpen, setIsTransferModalOpen] = React.useState(false);
@@ -70,6 +47,11 @@ export function StockPage() {
             accessorKey: 'product.name',
             header: 'Product Name',
             cell: ({ row }) => <span className="font-medium">{row.original.product?.name}</span>
+        },
+        {
+            accessorKey: 'branch.name',
+            header: 'Location',
+            cell: ({ row }) => <span className="text-muted-foreground">{row.original.branch?.name}</span>
         },
         {
             accessorKey: 'quantity',
@@ -146,12 +128,14 @@ export function StockPage() {
                         Manage inventory counts and perform quick adjustments.
                     </p>
                 </div>
-                <Button
-                    className="shadow-[0_0_15px_rgba(0,184,217,0.3)] hover:shadow-[0_0_25px_rgba(0,184,217,0.5)] transition-shadow"
-                    onClick={() => setIsTransferModalOpen(true)}
-                >
-                    <Box className="mr-2 h-4 w-4" /> Transfer Stock
-                </Button>
+                {isManager && (
+                    <Button
+                        className="shadow-[0_0_15px_rgba(0,184,217,0.3)] hover:shadow-[0_0_25px_rgba(0,184,217,0.5)] transition-shadow"
+                        onClick={() => setIsTransferModalOpen(true)}
+                    >
+                        <Box className="mr-2 h-4 w-4" /> Transfer Stock
+                    </Button>
+                )}
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col bg-muted/20 backdrop-blur-md border border-white/5 rounded-xl text-card-foreground shadow-lg p-6 relative group">

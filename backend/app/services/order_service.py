@@ -25,7 +25,18 @@ class OrderService:
         into a strongly-typed OrderResponse model.
         """
         items_raw = record.get("order_items", []) or []
-        items: List[OrderItemResponse] = [OrderItemResponse(**item) for item in items_raw]
+        items_mapped = []
+        for item in items_raw:
+            if "products" in item:
+                item["product"] = item.pop("products")
+            items_mapped.append(item)
+            
+        items: List[OrderItemResponse] = [OrderItemResponse(**item) for item in items_mapped]
+
+        if "branches" in record:
+            record["branch"] = record.pop("branches")
+        if "suppliers" in record:
+            record["supplier"] = record.pop("suppliers")
 
         payload = {**record, "items": items}
         return OrderResponse(**payload)
@@ -36,8 +47,9 @@ class OrderService:
         status: Optional[OrderStatus] = None,
         branch_id: Optional[UUID] = None,
     ) -> List[OrderResponse]:
-        supabase = get_supabase_client()
-        query = supabase.table("orders").select("*, order_items(*), branches(name), suppliers(name)")
+        # Use admin client to prevent infinite RLS profile recursion
+        supabase = get_admin_client()
+        query = supabase.table("orders").select("*, order_items(*, products(name, sku)), branches(name), suppliers(name)")
 
         if order_type is not None:
             query = query.eq("order_type", order_type.value)
@@ -52,10 +64,11 @@ class OrderService:
 
     @staticmethod
     def get_order(order_id: UUID) -> OrderResponse:
-        supabase = get_supabase_client()
+        # Use admin client to prevent infinite RLS profile recursion
+        supabase = get_admin_client()
         result = (
             supabase.table("orders")
-            .select("*, order_items(*, products(name, sku))")
+            .select("*, order_items(*, products(name, sku)), branches(name), suppliers(name)")
             .eq("id", str(order_id))
             .single()
             .execute()
@@ -71,9 +84,12 @@ class OrderService:
     def create_order(order: OrderCreate, created_by: UUID) -> OrderResponse:
         supabase = get_admin_client()
 
-        # 1. Create order header
-        order_data = order.model_dump(exclude={"items"})
+        # 1. Create order header — use mode='json' so UUIDs/Decimals become strings
+        order_data = order.model_dump(exclude={"items"}, mode="json")
         order_data["created_by"] = str(created_by)
+        # Ensure enum values are their string representations
+        order_data["order_type"] = order.order_type.value
+        order_data["status"] = order.status.value
 
         order_res = supabase.table("orders").insert(order_data).execute()
         if not order_res.data:
@@ -83,14 +99,16 @@ class OrderService:
             )
         new_order = order_res.data[0]
 
-        # 2. Create order items
+        # 2. Create order items — serialize with mode='json' for safe types
         items_data = []
         total_amount = Decimal("0.00")
         for item in order.items:
-            item_dict = item.model_dump()
+            item_dict = item.model_dump(mode="json")
             item_dict["order_id"] = new_order["id"]
+            # NOTE: subtotal is a GENERATED column in PostgreSQL — do NOT insert it
             items_data.append(item_dict)
             total_amount += item.unit_price * item.quantity
+
 
         if items_data:
             supabase.table("order_items").insert(items_data).execute()

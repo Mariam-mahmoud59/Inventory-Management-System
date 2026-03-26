@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { adjustStockLevel } from '../stock';
 
 import type { StockLevel } from '../../types/schema';
 
@@ -24,14 +25,7 @@ export function useAdjustStockMutation() {
 
     return useMutation({
         mutationFn: async (payload: AdjustStockPayload) => {
-            // MOCK: Simulate successful network delay instead of failing API call
-            await new Promise((resolve) => setTimeout(resolve, 800));
-            return {
-                success: true,
-                quantity_before: 0,
-                quantity_after: payload.quantity_change,
-                low_stock_alert: false,
-            } as DefaultStockResponse;
+            return await adjustStockLevel(payload);
         },
         // Optimistic Update Implementation
         onMutate: async (newAdjustment) => {

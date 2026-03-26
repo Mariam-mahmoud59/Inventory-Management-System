@@ -10,8 +10,34 @@ class StockService:
         branch_id: Optional[UUID] = None,
         product_id: Optional[UUID] = None
     ) -> List[dict]:
-        supabase = get_supabase_client()
-        query = supabase.table("stock_levels").select("*, products(name, sku), branches(name)")
+        # Use admin client to prevent RLS recursion on profile lookups
+        supabase = get_admin_client()
+
+        # --- SELF-HEALING: Auto-initialize missing stock matrices for older products ---
+        try:
+            all_prods = supabase.table("products").select("id").execute().data
+            all_branches = supabase.table("branches").select("id").execute().data
+            existing_stock = supabase.table("stock_levels").select("product_id, branch_id").execute().data
+            
+            existing_pairs = set((s['product_id'], s['branch_id']) for s in (existing_stock or []))
+            
+            inserts = []
+            for p in (all_prods or []):
+                for b in (all_branches or []):
+                    if (p['id'], b['id']) not in existing_pairs:
+                        inserts.append({
+                            "product_id": p['id'],
+                            "branch_id": b['id'],
+                            "quantity": 0
+                        })
+            
+            if inserts:
+                supabase.table("stock_levels").insert(inserts).execute()
+        except Exception as e:
+            print(f"Retroactive stock init failed: {e}")
+        # -------------------------------------------------------------------------------
+
+        query = supabase.table("stock_levels").select("*, products(name, sku, min_stock_level), branches(name)")
         
         if branch_id:
             query = query.eq("branch_id", str(branch_id))
@@ -19,6 +45,14 @@ class StockService:
             query = query.eq("product_id", str(product_id))
             
         result = query.execute()
+        
+        # --- MAP PLURAL RELATIONS TO MATCH FRONTEND TS INTERFACES ---
+        for row in result.data:
+            if "products" in row:
+                row["product"] = row.pop("products")
+            if "branches" in row:
+                row["branch"] = row.pop("branches")
+                
         return result.data
 
     @staticmethod

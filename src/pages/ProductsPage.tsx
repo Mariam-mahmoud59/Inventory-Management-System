@@ -9,58 +9,8 @@ import type { ColumnDef } from '@tanstack/react-table';
 import type { Product } from '@/types/schema';
 import { toast } from 'sonner';
 
-// --- MOCK API ---
-const mockProducts: Product[] = Array.from({ length: 145 }, (_, i) => ({
-    id: `prod-${i}`,
-    sku: `SKU-${20000 + i}`,
-    barcode: `BC-${i}`,
-    name: `Pro Inventory Item ${i + 1}`,
-    description: 'High quality item for retail.',
-    category_id: null,
-    supplier_id: null,
-    unit_price: Number((Math.random() * 100).toFixed(2)),
-    cost_price: Number((Math.random() * 50).toFixed(2)),
-    min_stock_level: 10,
-    image_url: null,
-    is_active: Math.random() > 0.1,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    // Mock joined category for display
-    category: {
-        id: 'cat-1',
-        name: ['Electronics', 'Home Goods', 'Apparel', 'Office'][Math.floor(Math.random() * 4)],
-        description: null,
-        created_at: new Date().toISOString(),
-    },
-}));
-
-const fetchProducts = async (): Promise<Product[]> => {
-    await new Promise((resolve) => setTimeout(resolve, 600)); // Simulate network
-    return mockProducts;
-};
-
-const createProduct = async (newProduct: Partial<Product>): Promise<Product> => {
-    await new Promise((resolve) => setTimeout(resolve, 800)); // Simulate network
-    const product: Product = {
-        id: `prod-new-${Date.now()}`,
-        sku: newProduct.sku || `SKU-NEW-${Date.now()}`,
-        barcode: null,
-        name: newProduct.name || 'New Product',
-        description: '',
-        category_id: null,
-        supplier_id: null,
-        unit_price: newProduct.unit_price || 0,
-        cost_price: 0,
-        min_stock_level: 10,
-        image_url: null,
-        is_active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-    };
-    mockProducts.unshift(product);
-    return product;
-};
-// ----------------
+import { fetchProducts, createProduct } from '@/api/products';
+import { useProfile } from '@/hooks/useProfile';
 
 const columns: ColumnDef<Product>[] = [
     { accessorKey: 'sku', header: 'SKU' },
@@ -90,6 +40,8 @@ const columns: ColumnDef<Product>[] = [
 ];
 
 export function ProductsPage() {
+    const { data: profile, isLoading: isProfileLoading } = useProfile();
+    const canCreate = isProfileLoading || profile?.role === 'admin' || profile?.role === 'manager';
     const queryClient = useQueryClient();
     const [isSlideOverOpen, setIsSlideOverOpen] = React.useState(false);
     const [globalFilter, setGlobalFilter] = React.useState('');
@@ -108,8 +60,11 @@ export function ProductsPage() {
             setIsSlideOverOpen(false);
             toast.success('Product created successfully');
         },
-        onError: () => {
-            toast.error('Failed to create product');
+        onError: (err: any) => {
+            const errorDetail = err.response?.data?.detail
+                ? (typeof err.response.data.detail === 'string' ? err.response.data.detail : JSON.stringify(err.response.data.detail))
+                : err.message;
+            toast.error(`Failed to create product: ${errorDetail}`);
         }
     });
 
@@ -153,12 +108,14 @@ export function ProductsPage() {
                         Manage your catalog, pricing, and master records.
                     </p>
                 </div>
-                <Button
-                    className="shadow-[0_0_15px_rgba(0,184,217,0.3)] hover:shadow-[0_0_25px_rgba(0,184,217,0.5)] transition-shadow"
-                    onClick={() => setIsSlideOverOpen(true)}
-                >
-                    <Plus className="mr-2 h-4 w-4" /> Add Product
-                </Button>
+                {canCreate && (
+                    <Button
+                        className="shadow-[0_0_15px_rgba(0,184,217,0.3)] hover:shadow-[0_0_25px_rgba(0,184,217,0.5)] transition-shadow"
+                        onClick={() => setIsSlideOverOpen(true)}
+                    >
+                        <Plus className="mr-2 h-4 w-4" /> Add Product
+                    </Button>
+                )}
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col bg-muted/20 backdrop-blur-md border border-white/5 rounded-xl text-card-foreground shadow-lg p-6 relative group">

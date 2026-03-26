@@ -1,18 +1,26 @@
 import { NavLink } from 'react-router-dom';
 import { Home, Package, Box, ShoppingCart, MapPin, Users, FileBarChart } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useProfile } from '@/hooks/useProfile';
 
-const navItems = [
-    { name: 'Dashboard', href: '/', icon: Home },
-    { name: 'Products', href: '/products', icon: Package },
-    { name: 'Stock', href: '/stock', icon: Box },
-    { name: 'Orders', href: '/orders', icon: ShoppingCart },
-    { name: 'Branches', href: '/branches', icon: MapPin },
-    { name: 'Users', href: '/users', icon: Users },
-    { name: 'Reports', href: '/reports', icon: FileBarChart },
+const allNavItems = [
+    { name: 'Dashboard', href: '/', icon: Home, roles: ['admin', 'manager', 'staff'] },
+    { name: 'Products', href: '/products', icon: Package, roles: ['admin', 'manager', 'staff'] },
+    { name: 'Stock', href: '/stock', icon: Box, roles: ['admin', 'manager', 'staff'] },
+    { name: 'Orders', href: '/orders', icon: ShoppingCart, roles: ['admin', 'manager', 'staff'] },
+    { name: 'Branches', href: '/branches', icon: MapPin, roles: ['admin', 'manager', 'staff'] },
+    { name: 'Users', href: '/users', icon: Users, roles: ['admin'] }, // 🔒 Admin only
+    { name: 'Reports', href: '/reports', icon: FileBarChart, roles: ['admin', 'manager', 'staff'] },
 ];
 
 export function Sidebar() {
+    const { data: profile, isLoading } = useProfile();
+    const role = profile?.role ?? 'admin'; // Show all items while loading — restrict only once profile is confirmed
+
+    const navItems = isLoading
+        ? allNavItems  // show everything until we know the user's role
+        : allNavItems.filter(item => item.roles.includes(role));
+
     return (
         <div className="flex h-full w-64 flex-col border-r border-white/5 bg-black/40 backdrop-blur-xl px-4 py-8 shadow-[10px_0_30px_rgba(0,0,0,0.5)] z-20 relative">
             <div className="flex items-center mb-8 px-2 space-x-3">
@@ -49,6 +57,9 @@ export function Sidebar() {
                                     isActive ? "scale-110 drop-shadow-[0_0_8px_rgba(0,184,217,0.6)]" : "group-hover:scale-110"
                                 )} aria-hidden="true" />
                                 <span className={cn("relative z-10 tracking-wide", isActive && "drop-shadow-[0_0_5px_rgba(0,184,217,0.5)]")}>{item.name}</span>
+                                {item.roles.length === 1 && item.roles[0] === 'admin' && (
+                                    <span className="ml-auto text-[9px] uppercase font-bold text-destructive/60 relative z-10">Admin</span>
+                                )}
                             </>
                         )}
                     </NavLink>

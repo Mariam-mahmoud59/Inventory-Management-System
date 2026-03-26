@@ -7,47 +7,36 @@ import { DataTable } from '@/components/DataTable';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { ColumnDef } from '@tanstack/react-table';
 
-// Mock API call to simulate data fetching for dashboard statistics
-const fetchDashboardStats = async () => {
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    return {
-        totalProducts: 1240,
-        activeOrders: 48,
-        lowStockAlerts: 12,
-        inventoryValue: 1450000.5,
-    };
-};
+import { fetchDashboardStats } from '@/api/dashboard';
+import { fetchProducts } from '@/api/products';
 
-type MockProduct = {
-    id: string;
-    sku: string;
-    name: string;
-    category: string;
-    stockLevel: number;
-    status: string;
-};
+import type { Product } from '@/types/schema';
 
-// Generates an array of at least 1,000 objects for testing virtualization
-const generateMockProducts = (count: number): MockProduct[] => {
-    const categories = ['Electronics', 'Furniture', 'Office Supplies', 'Apparel', 'Accessories'];
-    const statuses = ['Active', 'Active', 'Active', 'Low Stock', 'Discontinued'];
-    return Array.from({ length: count }, (_, i) => ({
-        id: `prod-${i}`,
-        sku: `SKU-${10000 + i}`,
-        name: `Virtual Test Product ${i + 1}`,
-        category: categories[Math.floor(Math.random() * categories.length)],
-        stockLevel: Math.floor(Math.random() * 1000),
-        status: statuses[Math.floor(Math.random() * statuses.length)],
-    }));
-};
-
-const columns: ColumnDef<MockProduct>[] = [
+const columns: ColumnDef<Product>[] = [
     { accessorKey: 'sku', header: 'SKU' },
     { accessorKey: 'name', header: 'Product Name' },
-    { accessorKey: 'category', header: 'Category' },
-    { accessorKey: 'stockLevel', header: 'Stock Level' },
-    { accessorKey: 'status', header: 'Status' },
+    {
+        accessorKey: 'category.name',
+        header: 'Category',
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.category?.name || '-'}</span>
+    },
+    {
+        accessorKey: 'unit_price',
+        header: 'Unit Price',
+        cell: ({ row }) => <span className="font-mono">${row.original.unit_price}</span>
+    },
+    {
+        accessorKey: 'is_active',
+        header: 'Status',
+        cell: ({ row }) => (
+            <span className={cn(
+                "px-2 py-1 rounded-md text-xs font-semibold tracking-wide",
+                row.original.is_active ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"
+            )}>
+                {row.original.is_active ? 'Active' : 'Discontinued'}
+            </span>
+        )
+    },
 ];
 
 export function DashboardPage() {
@@ -56,17 +45,19 @@ export function DashboardPage() {
         queryFn: fetchDashboardStats,
     });
 
-    // Generate 1000 mock rows, memoized so it only happens once
-    const mockData = React.useMemo(() => generateMockProducts(1000), []);
+    const { data: products } = useQuery({
+        queryKey: ['products'],
+        queryFn: fetchProducts,
+    });
 
-    const formattedValue = !statsData?.inventoryValue
+    const formattedValue = !statsData?.total_inventory_value
         ? '$0.00'
         : new Intl.NumberFormat('en-US', {
             style: 'currency',
             currency: 'USD',
             minimumFractionDigits: 0,
             maximumFractionDigits: 0,
-        }).format(statsData.inventoryValue);
+        }).format(statsData.total_inventory_value);
 
     if (isError) {
         return (
@@ -104,25 +95,25 @@ export function DashboardPage() {
             <div className="shrink-0 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <StatCard
                     title="Total Products"
-                    value={statsLoading ? null : statsData?.totalProducts}
+                    value={products ? products.length : (statsLoading ? null : 0)}
                     icon={Package}
-                    trend="+4.2% from last month"
+                    trend="In catalog"
                     iconClassName="text-blue-500"
                 />
                 <StatCard
                     title="Active Orders"
-                    value={statsLoading ? null : statsData?.activeOrders}
+                    value={statsLoading ? null : statsData?.order_summary.pending}
                     icon={TrendingUp}
-                    trend="+12 this week"
+                    trend="Awaiting fulfillment"
                     iconClassName="text-emerald-500"
                 />
                 <StatCard
                     title="Low Stock Alerts"
-                    value={statsLoading ? null : statsData?.lowStockAlerts}
+                    value={statsLoading ? null : statsData?.low_stock_alerts.length}
                     icon={AlertCircle}
                     trend="Requires action"
                     iconClassName="text-amber-500 drop-shadow-[0_0_5px_rgba(245,158,11,0.5)]"
-                    isAlert
+                    isAlert={statsData && statsData.low_stock_alerts.length > 0}
                 />
                 <StatCard
                     title="Total Value"
@@ -137,12 +128,12 @@ export function DashboardPage() {
                 <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
                 <h3 className="shrink-0 font-semibold text-lg mb-4 text-primary/90 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                    Product Inventory (Virtualization Test - 1000 rows)
+                    Live Product Catalog
                 </h3>
                 <div className="flex-1 min-h-0 relative z-10">
                     <DataTable
                         columns={columns}
-                        data={mockData}
+                        data={products || []}
                         pageCount={1}
                         pagination={{ pageIndex: 0, pageSize: 50 }}
                         onPaginationChange={() => { }}

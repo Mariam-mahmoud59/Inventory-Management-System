@@ -3,6 +3,8 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { RouterProvider, createBrowserRouter } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
 import { Layout } from '@/components/layout/Layout';
+import { AuthProvider } from '@/contexts/AuthContext';
+import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
 // Lazy load route pages for automatic code splitting
 const DashboardPage = lazy(() => import('@/pages/DashboardPage').then(module => ({ default: module.DashboardPage })));
@@ -14,6 +16,7 @@ const OrdersPage = lazy(() => import('@/pages/OrdersPage').then(module => ({ def
 const UsersPage = lazy(() => import('@/pages/UsersPage').then(module => ({ default: module.UsersPage })));
 const BranchesPage = lazy(() => import('@/pages/BranchesPage').then(module => ({ default: module.BranchesPage })));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage').then(module => ({ default: module.ReportsPage })));
+const LoginPage = lazy(() => import('@/pages/LoginPage').then(module => ({ default: module.LoginPage })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,8 +31,20 @@ const queryClient = new QueryClient({
 // React Router v6 Data BrowserRouter setup
 const router = createBrowserRouter([
   {
+    path: '/login',
+    element: (
+      <Suspense fallback={<div className="h-screen w-screen bg-background" />}>
+        <LoginPage />
+      </Suspense>
+    ),
+  },
+  {
     path: '/',
-    element: <Layout />,
+    element: (
+      <ProtectedRoute>
+        <Layout />
+      </ProtectedRoute>
+    ),
     errorElement: <NotFoundPage />,
     children: [
       {
@@ -78,10 +93,12 @@ const router = createBrowserRouter([
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-      <ReactQueryDevtools initialIsOpen={false} />
-    </QueryClientProvider>
+    <AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+        <ReactQueryDevtools initialIsOpen={false} />
+      </QueryClientProvider>
+    </AuthProvider>
   );
 }
 

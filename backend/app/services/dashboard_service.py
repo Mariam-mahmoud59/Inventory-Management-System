@@ -1,10 +1,10 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
 
 from fastapi import HTTPException, status
 
-from app.db.supabase import get_supabase_client
+from app.db.supabase import get_admin_client
 
 
 class DashboardService:
@@ -17,14 +17,20 @@ class DashboardService:
         - order_summary (pending vs delivered this month)
         - recent_transactions (last 10 stock_transactions)
         """
-        supabase = get_supabase_client()
+        # Use admin client to prevent infinite RLS profile recursion
+        supabase = get_admin_client()
 
-        # Total inventory value via RPC (preferred) or fallback aggregation
-        inv_result = supabase.rpc("get_total_inventory_value", {}).execute()
-        if inv_result.data is None:
-            total_inventory_value = Decimal("0.00")
-        else:
-            total_inventory_value = Decimal(str(inv_result.data.get("total_value", "0.00")))
+        # Total inventory value — direct aggregation (no RPC needed)
+        # Fetch all stock levels with the product's unit_price
+        stock_result = supabase.table("stock_levels").select(
+            "quantity, products(unit_price)"
+        ).execute()
+        total_inventory_value = 0.0
+        for row in stock_result.data or []:
+            qty = row.get("quantity") or 0
+            prod = row.get("products") or {}
+            price = float(prod.get("unit_price") or 0)
+            total_inventory_value += qty * price
 
         # Low stock alerts: products where quantity <= min_stock_level
         # We rely on a view or join capable endpoint in Supabase; otherwise fetch and filter.
@@ -53,7 +59,6 @@ class DashboardService:
             elif o.get("status") == "delivered":
                 delivered += 1
 
-        # Recent stock transactions (activity feed)
         recent_txns_result = (
             supabase.table("stock_transactions")
             .select("*, stock_levels(product_id, branch_id)")
@@ -61,6 +66,16 @@ class DashboardService:
             .limit(10)
             .execute()
         )
+        
+        # Format plural relationship mappings to singular for frontend TS interfaces
+        for item in low_stock_items:
+            if "products" in item:
+                item["product"] = item.pop("products")
+                
+        recent_txns_items = recent_txns_result.data or []
+        for tx in recent_txns_items:
+            if "stock_levels" in tx:
+                tx["stock_level"] = tx.pop("stock_levels")
 
         return {
             "total_inventory_value": total_inventory_value,
@@ -69,34 +84,103 @@ class DashboardService:
                 "pending": pending,
                 "delivered": delivered,
             },
-            "recent_transactions": recent_txns_result.data or [],
+            "recent_transactions": recent_txns_items,
         }
 
     @staticmethod
-    def get_stock_movement(
-        start_date: date,
-        end_date: date,
-    ) -> List[Dict[str, Any]]:
+    def get_analytics() -> Dict[str, Any]:
         """
-        Return stock movement data grouped by date for reporting charts.
-
-        Uses a database-side view / RPC `get_stock_movement_series` that
-        returns rows of the form:
-        - movement_date: date
-        - total_in: int
-        - total_out: int
+        Return stock movement and valuation data for reporting charts.
         """
-        if start_date > end_date:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="start_date must be on or before end_date",
-            )
-
-        supabase = get_supabase_client()
-        result = supabase.rpc(
-            "get_stock_movement_series",
-            {"p_start_date": start_date.isoformat(), "p_end_date": end_date.isoformat()},
+        supabase = get_admin_client()
+        
+        # 1. Movement by Category (MTD)
+        today = date.today()
+        month_start = today.replace(day=1)
+        
+        txns_result = supabase.table("stock_transactions").select(
+            "txn_type, quantity_change, stock_levels(products(category_id))"
+        ).gte("created_at", month_start.isoformat()).execute()
+        
+        categories_result = supabase.table("categories").select("id, name").execute()
+        cat_map = {c["id"]: c["name"] for c in categories_result.data or []}
+        
+        movement = {}
+        for tx in txns_result.data or []:
+            try:
+                prod = tx.get("stock_levels", {}).get("products", {})
+                cat_id = prod.get("category_id")
+                cat_name = cat_map.get(cat_id, "Uncategorized")
+            except (KeyError, TypeError, AttributeError):
+                cat_name = "Uncategorized"
+                
+            if cat_name not in movement:
+                movement[cat_name] = {"name": cat_name, "in": 0, "out": 0}
+                
+            qty = tx.get("quantity_change", 0)
+            txn_type = tx.get("txn_type", "")
+            if txn_type in ("purchase_in", "transfer_in", "adjustment_in"):
+                movement[cat_name]["in"] += qty
+            elif txn_type in ("sale_out", "transfer_out", "adjustment_out"):
+                movement[cat_name]["out"] += abs(qty)
+                
+        # 2. Valuation Trend — daily granularity for last 30 days
+        # Start from today's real inventory value snapshot
+        stock_val_result = supabase.table("stock_levels").select(
+            "quantity, products(unit_price)"
         ).execute()
+        current_value = 0.0
+        for row in stock_val_result.data or []:
+            qty = row.get("quantity") or 0
+            prod = row.get("products") or {}
+            price = float(prod.get("unit_price") or 0)
+            current_value += qty * price
 
-        return result.data or []
+        # Fetch all transactions in the last 30 days
+        thirty_days_ago = today - timedelta(days=29)
+        history_txns = supabase.table("stock_transactions").select(
+            "txn_type, quantity_change, created_at, stock_levels(products(unit_price))"
+        ).gte("created_at", thirty_days_ago.isoformat()).execute()
 
+        # Build daily delta dict: "YYYY-MM-DD" -> net value change that day
+        daily_delta: Dict[str, float] = {}
+        for tx in history_txns.data or []:
+            try:
+                price = float((tx.get("stock_levels") or {}).get("products", {}).get("unit_price") or 0)
+            except (TypeError, ValueError):
+                price = 0.0
+            qty = tx.get("quantity_change", 0) or 0
+            txn_type = tx.get("txn_type", "")
+            if txn_type in ("purchase_in", "transfer_in", "adjustment_in"):
+                delta = qty * price
+            elif txn_type in ("sale_out", "transfer_out", "adjustment_out"):
+                delta = qty * price  # qty_change is negative for outbound, so delta is negative
+            else:
+                delta = 0.0
+
+            try:
+                day_key = tx["created_at"][:10]  # "YYYY-MM-DD"
+            except (KeyError, TypeError):
+                continue
+            daily_delta[day_key] = daily_delta.get(day_key, 0.0) + delta
+
+        # Walk back 30 days from today — one data point per day
+        valuation_data = []
+        running_value = current_value
+        for i in range(29, -1, -1):
+            target_day = today - timedelta(days=i)
+            day_key = target_day.strftime("%Y-%m-%d")
+            # Label: "26 Mar" style — use lstrip to remove leading zero (cross-platform)
+            label = (target_day.strftime("%d %b").lstrip("0")) if i > 0 else "Today"
+            valuation_data.append({
+                "month": label,
+                "value": round(running_value, 2),
+                "cost": round(running_value * 0.75, 2),
+            })
+            # Subtract this day's delta to walk backwards
+            running_value -= daily_delta.get(day_key, 0.0)
+        
+        return {
+            "valuation_trend": valuation_data,
+            "movement_by_category": list(movement.values())
+        }

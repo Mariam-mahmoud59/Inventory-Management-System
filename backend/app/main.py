@@ -1,7 +1,9 @@
-from fastapi import FastAPI
+import traceback
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.config import settings
-from app.routers import products, stock, orders, branches, users, dashboard
+from app.routers import products, stock, orders, branches, users, dashboard, notifications
 
 app = FastAPI(
     title="Inventory Management System API",
@@ -18,6 +20,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Ensure CORS headers are always present, even on 500 errors."""
+    tb = traceback.format_exc()
+    print(f"UNHANDLED EXCEPTION on {request.method} {request.url}:\n{tb}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "traceback": tb.splitlines()[-3:]},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true",
+        },
+    )
+
 @app.get("/")
 async def root():
     return {"message": "IMS API is live!"}
@@ -33,3 +49,4 @@ app.include_router(stock.router, prefix="/api/v1/stock", tags=["Stock"])
 app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 app.include_router(branches.router, prefix="/api/v1/branches", tags=["Branches"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
+app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])

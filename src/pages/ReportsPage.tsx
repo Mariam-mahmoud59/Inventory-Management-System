@@ -1,26 +1,29 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
 import { Calendar, TrendingUp, Package, DollarSign } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-
-// Mock Data
-const valuationData = [
-    { month: 'Jan', value: 120000, cost: 70000 },
-    { month: 'Feb', value: 132000, cost: 75000 },
-    { month: 'Mar', value: 145000, cost: 82000 },
-    { month: 'Apr', value: 138000, cost: 80000 },
-    { month: 'May', value: 155000, cost: 90000 },
-    { month: 'Jun', value: 168000, cost: 95000 },
-    { month: 'Jul', value: 180000, cost: 100000 },
-];
-
-const movementData = [
-    { name: 'Electronics', in: 400, out: 240 },
-    { name: 'Apparel', in: 300, out: 390 },
-    { name: 'Home Goods', in: 200, out: 180 },
-    { name: 'Office', in: 278, out: 190 },
-];
+import { useQuery } from '@tanstack/react-query';
+import { fetchDashboardStats, fetchAnalytics } from '@/api/dashboard';
 
 export function ReportsPage() {
+    const { data: statsData, isLoading: statsLoading } = useQuery({
+        queryKey: ['dashboard-stats'],
+        queryFn: fetchDashboardStats,
+    });
+
+    const { data: analyticsData, isLoading: analyticsLoading } = useQuery({
+        queryKey: ['dashboard-analytics'],
+        queryFn: fetchAnalytics,
+    });
+
+    const formattedValue = !statsData?.total_inventory_value
+        ? '$0.00'
+        : new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0,
+        }).format(statsData.total_inventory_value);
+
     return (
         <div className="space-y-6">
             {/* Header & Controls */}
@@ -48,7 +51,7 @@ export function ReportsPage() {
                     </div>
                     <div>
                         <p className="text-sm font-medium text-muted-foreground group-hover:text-primary/80 transition-colors">Total Inventory Value</p>
-                        <h3 className="text-2xl font-bold tracking-tight group-hover:text-white transition-colors">$180,000</h3>
+                        <h3 className="text-2xl font-bold tracking-tight group-hover:text-white transition-colors">{statsLoading ? '...' : formattedValue}</h3>
                     </div>
                 </div>
                 <div className="rounded-xl border border-white/5 bg-black/40 backdrop-blur-xl text-card-foreground shadow-[0_4px_20px_rgba(0,0,0,0.5)] p-6 flex items-center space-x-4 transition-all hover:bg-black/60 hover:shadow-[0_8px_30px_rgba(0,184,217,0.2)] hover:border-primary/30 group">
@@ -66,7 +69,7 @@ export function ReportsPage() {
                     </div>
                     <div>
                         <p className="text-sm font-medium text-muted-foreground group-hover:text-primary/80 transition-colors">Low Stock SKUs</p>
-                        <h3 className="text-2xl font-bold tracking-tight group-hover:text-white transition-colors">24</h3>
+                        <h3 className="text-2xl font-bold tracking-tight group-hover:text-white transition-colors">{statsLoading ? '...' : statsData?.low_stock_alerts?.length || 0}</h3>
                     </div>
                 </div>
                 <div className="rounded-xl border border-white/5 bg-black/40 backdrop-blur-xl text-card-foreground shadow-[0_4px_20px_rgba(0,0,0,0.5)] p-6 flex items-center space-x-4 transition-all hover:bg-black/60 hover:shadow-[0_8px_30px_rgba(0,184,217,0.2)] hover:border-primary/30 group">
@@ -84,10 +87,13 @@ export function ReportsPage() {
             <div className="grid gap-6 md:grid-cols-2">
                 {/* Area Chart: Valuation Trend */}
                 <div className="rounded-xl border border-white/5 bg-black/40 backdrop-blur-xl text-card-foreground shadow-[0_4px_20px_rgba(0,0,0,0.5)] p-6">
-                    <h3 className="text-lg font-semibold mb-6">Inventory Valuation Trend</h3>
+                    <h3 className="text-lg font-semibold mb-6 flex items-center justify-between">
+                        Inventory Valuation Trend
+                        {analyticsLoading && <span className="text-xs text-primary animate-pulse">Syncing...</span>}
+                    </h3>
                     <div className="h-[300px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={valuationData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <AreaChart data={analyticsData?.valuation_trend || []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                                         <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -115,10 +121,13 @@ export function ReportsPage() {
 
                 {/* Bar Chart: Stock Movement by Category */}
                 <div className="rounded-xl border border-white/5 bg-black/40 backdrop-blur-xl text-card-foreground shadow-[0_4px_20px_rgba(0,0,0,0.5)] p-6">
-                    <h3 className="text-lg font-semibold mb-6">Stock Movement by Category (MTD)</h3>
+                    <h3 className="text-lg font-semibold mb-6 flex items-center justify-between">
+                        Stock Movement by Category (MTD)
+                        {analyticsLoading && <span className="text-xs text-primary animate-pulse">Syncing...</span>}
+                    </h3>
                     <div className="h-[300px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={movementData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <BarChart data={analyticsData?.movement_by_category || []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                                 <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                                 <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
